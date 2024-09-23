@@ -1,0 +1,279 @@
+
+
+#================inits for model======================
+CovInits<-list(phi = rep(0,nphi),
+               ph = rep(0.1,nphi),
+               beta = rep(0,ncoef+1),
+               Tbeta = rep(1.1,ncoef+1),
+               
+               alpha1=rep(0,ncoef),
+               Talpha1=rep(0.1,ncoef),
+               alpha2=rep(0,ncoef),
+               Talpha2=rep(0.1,ncoef),
+               
+               u=rep(0,Nsubj),
+               Tu = 0.1,
+               s=rep(0,Nsubj),
+               Ts = 0.1,
+               taudd = 0.1,
+               
+               histf = c(0.1,0.1),
+               Thist = 0.1, 
+               
+               del=0.1,
+               
+               t = t.init,
+               
+               smokef = c(0.1, 0.1), 
+               smokef_M1 = c(0.1, 0.1), 
+               smokef_M2 = c(0.1, 0.1), 
+               activef = c(0.1, 0.1),
+               activef_M1 = c(0.1, 0.1),
+               activef_M2 = c(0.1, 0.1),
+               diabf = rep(0.1, 2),
+               diabf_M1 = rep(0.1, 2),
+               diabf_M2 = rep(0.1, 2),
+               hbpf = rep(0.1, 2),
+               hbpf_M1 = rep(0.1, 2),
+               hbpf_M2 = rep(0.1, 2),
+               
+               tsm = 0.1, tsm1 = 0.1, tsm2 = 0.1,
+               tactive = 0.1,  tactive1 = 0.1, tactive2 = 0.1,
+               tdiab=0.1, tdiab1=0.1, tdiab2=0.1,
+               thbp=0.1, thbp1=0.1, thbp2=0.1,
+               
+               delta1=0.1,
+               delta2=0.1
+              
+)
+
+
+#===============model==========================
+
+Model1<-nimbleCode({
+
+  #--------------------survival model----------------------
+  for ( i in 1:Nsubj){
+    censored[i]~dinterval(t[i],tcen[i]) 
+    t[i]~ dweib(del,lambda[i])
+    
+    log(lambda[i])<-
+      beta[1]+
+      beta[2]*expo[i]+
+      beta[3]*delaydiag[i]+
+      histf[hist[i]]+  
+      sumC[i]+
+      beta[4]*u[i]
+
+    #------------------for expo----------------------------
+    expo[i] <- yost2010[i]  #yost2010/ URB /  ICE_income / ADI
+    yost2010[i]~dnorm(0,1)
+    
+    ###------------for mediator 1 - delay diag-----------------
+    delaydiag[i] ~ dnorm(mu[i],taudd)
+    log(mu[i]) <-      
+      alpha1[1]+ 
+      alpha1[2]*expo[i] +
+      alpha1[3]*u[i]+
+      sumC_M1[i]+
+      delta1*s[i] 
+    
+    
+    #--------------for mediator 2 - histology---------------
+    hist[i]~dcat(prob_hist[i,1:2])  
+    
+    for(m2 in 1:2){
+      log(as2[i,m2]) <- 
+        alpha2[1]+
+        alpha2[2]*expo[i] +
+        alpha2[3]*u[i]+
+        sumC_M2[i]+
+        delta2*s[i] 
+        
+        prob_hist[i,m2]<-as2[i,m2]/sum(as2[i,1:2])
+    } 
+    
+    
+    #-----------------for covariates in sumC/sumC_M1/sumC_M2 ----------------
+    sumC[i]<-                         
+      beta[5]*phi[1]*age[i] +
+      beta[6]*phi[2]*adj_income[i] +
+      phi[3]*smokef[smoke[i]] + 
+      phi[4]*activef[paga[i]] +
+      phi[5]*diabf[diabetes[i]] +
+      phi[6]*hbpf[hbp[i]] 
+    
+    sumC_M1[i]<-                 
+      alpha1[4]*phi[1]*age[i] +
+      alpha1[5]*phi[2]*adj_income[i] +
+      phi[3]*smokef_M1[smoke[i]] +
+      phi[4]*activef_M1[paga[i]] + 
+      phi[5]*diabf_M1[diabetes[i]] +
+      phi[6]*hbpf_M1[hbp[i]]    
+    
+    sumC_M2[i]<-
+      alpha2[4]*phi[1]*age[i] +
+      alpha2[5]*phi[2]*adj_income[i] + 
+      phi[3]*smokef_M2[smoke[i]] +
+      phi[4]*activef_M2[paga[i]] + 
+      phi[5]*diabf_M2[diabetes[i]] +
+      phi[6]*hbpf_M2[hbp[i]]  
+    
+    adj_income[i]~dgamma(2,0.8)
+    bmi[i]~ dnorm(0,1)
+    
+    
+    #random int U
+    u[i]~dnorm(0,Tu)
+    s[i]~dnorm(0,Ts)
+    
+    
+    #deviance
+    #The deviance of the weibull: t[i]~ dweib(del,lambda[i])
+    devL[i] <-  -2* (  log(lambda[i]*del) + (del-1)*log(t[i]) - lambda[i]*(t[i]^del)   )
+    #deviance of the binomial
+    devL_1[i] <-  -2*log(dnorm(delaydiag[i], exp(log(mu[i])), 1/taudd))   #formula missing
+    
+  }
+  
+  #-------------------additional priors--------------------------
+  
+  for (k1 in 1: nphi){
+    phi[k1]~dbern(ph[k1])    
+    ph[k1]~dbeta(1,1)
+  }
+
+  
+  for (j1 in 1 : (numc+3)){
+    alpha1[j1]~dnorm(0,Talpha1[j1])
+    Talpha1[j1]~dgamma(2,0.5)
+    
+    alpha2[j1]~dnorm(0,Talpha2[j1])
+    Talpha2[j1]~dgamma(2,0.5)
+  }
+  
+  for (j2 in 1 : (ncoef+1)){
+    beta[j2]~dnorm(0,Tbeta[j2])
+    Tbeta[j2]~dgamma(2,0.5)
+  }
+
+  
+  for(k2 in 1: 2){
+    
+    histf[k2]~dnorm(0,Thist)
+    
+    smokef[k2]~dnorm(0,tsm)
+    smokef_M1[k2]~dnorm(0,tsm1)
+    smokef_M2[k2]~dnorm(0,tsm2)
+    
+    activef[k2]~dnorm(0,tactive)
+    activef_M1[k2]~dnorm(0,tactive1)
+    activef_M2[k2]~dnorm(0,tactive2)
+    
+    diabf[k2]~dnorm(0,tdiab)
+    diabf_M1[k2]~dnorm(0,tdiab1)
+    diabf_M2[k2]~dnorm(0,tdiab2)
+    
+    hbpf[k2]~dnorm(0,thbp)
+    hbpf_M1[k2]~dnorm(0,thbp1)
+    hbpf_M2[k2]~dnorm(0,thbp2)
+  }
+  
+  
+
+  del~dunif(min = 0.8, max = 1.2)   #uniform 
+  Tu~dgamma(2,0.5)
+  Ts~dbeta(1,1)
+  
+  taudd~dgamma(2,0.5)
+  
+  tactive~dgamma(2,0.5)
+  tactive1~dgamma(2,0.5)
+  tactive2~dgamma(2,0.5)
+  tsm~dgamma(2,0.5)
+  tsm1~dgamma(2,0.5)
+  tsm2~dgamma(2,0.5)
+  tdiab~dgamma(2,0.5)
+  tdiab1~dgamma(2,0.5)
+  tdiab2~dgamma(2,0.5)
+  thbp~dgamma(2,0.5)
+  thbp1~dgamma(2,0.5)
+  thbp2~dgamma(2,0.5)
+  
+  Thist~dgamma(2,0.5)
+  #Tstage~dgamma(2,0.5)
+  
+  delta1~dbeta(1,1)
+  delta2~dbeta(1,1)
+
+  #-----------------derived variables--------------------
+  
+  indirect_M1 <- beta[3]*alpha1[2]  #indirect effect via diagdelay 
+  hist_effect<-mean(histf[1:2])     
+  indirect_M2 <- hist_effect*alpha2[2]  #indirect via histology
+  
+  direct <- beta[2]  #direct effect of exposure
+  total<-direct+indirect_M1+indirect_M2
+  
+  active_effect <- mean(activef[1:2])
+  smoke_effect <- mean(smokef[1:2])
+  diab_effect <- mean(diabf[1:2])
+  hbp_effect <- mean(hbpf[1:2])
+  
+  deviance<- sum(devL[1:Nsubj])
+  deviance1 <- sum(devL_1[1:Nsubj])  #added to test convergence
+ 
+  
+})
+
+
+LCOV<-nimbleModel(code=Model1,
+                 # name="mediation1",
+                  constants=covconst,
+                  data=covdata,
+                  inits=CovInits)
+
+LCOV$initializeInfo()
+
+
+
+######################## Compile  ######################################
+nimbleOptions(clearNimbleFunctionsAfterCompiling = TRUE) 
+
+CLCOV<-compileNimble(LCOV)
+LconvConf<-configureMCMC(CLCOV,print=TRUE)
+
+
+monitor.list<-c("del","lambda","mu","phi","hist_effect","histf",
+                "alpha1","alpha2","beta","devL_1","delta1","delta2",
+                "smoke_effect","smokef","smokef_M1","smokef_M2",
+                "active_effect","activef","activef_M1","activef_M2",
+                "hbp_effect","hbpf","hbpf_M1","hbpf_M2",
+                "diab_effect","diabf","diabf_M1","diabf_M2",
+                "indirect_M1","indirect_M2", "total","deviance","deviance1")  
+
+
+LconvConf$addMonitors(monitor.list)
+
+LconvMCMC<-buildMCMC(LconvConf, resetFunctions = TRUE)
+CLconvMCMC<-compileNimble(LconvMCMC)
+
+niter<-1.2*1000*1000
+nburn<-1.1*1000*1000
+nthin<-40
+num.chain<-1
+
+samples002<-runMCMC(CLconvMCMC,niter=niter,nburnin=nburn,nchains=num.chain,
+                    thin=nthin,summary=TRUE)  #run model
+output002 = samples002$summary
+
+
+
+
+#===============output results========================
+sample_out <- samples002$samples
+
+result = list( output=output002, sample=sample_out,
+              varList = monitor.list,
+              numc = numc,nab = ncoef )
+
